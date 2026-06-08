@@ -17,7 +17,8 @@ conversation and picks a matching track automatically.
 ## Install
 
 ```bash
-git clone https://github.com/your-username/music-cli ~/.claude/skills/music-control
+git clone https://github.com/ni-shiliu/music-cli
+cp -r music-cli/skill ~/.claude/skills/music-control
 ```
 
 Claude Code will automatically load the skill on next startup.
