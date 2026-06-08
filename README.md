@@ -1,6 +1,7 @@
 # music-cli
 
 macOS 音乐控制 CLI，支持**酷狗**和 **Spotify** 桌面客户端。
+> 暂时支持Spotify
 
 ## 功能
 
