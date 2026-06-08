@@ -347,8 +347,26 @@ class SpotifyProvider(MusicProvider):
         if r.returncode == 0 and app and app != self.proc_name:
             self._focus_app = app
 
+    def _ensure_running(self) -> bool:
+        """确保 Spotify 在运行，没有则启动并等待就绪。"""
+        r = subprocess.run(["pgrep", "-x", self.proc_name], capture_output=True)
+        if r.returncode == 0:
+            return True
+        # 启动 Spotify
+        subprocess.run(["open", "-a", self.proc_name], capture_output=True)
+        # 等待最多 10 秒直到进程出现
+        for _ in range(20):
+            time.sleep(0.5)
+            r = subprocess.run(["pgrep", "-x", self.proc_name], capture_output=True)
+            if r.returncode == 0:
+                time.sleep(2)  # 再等 2 秒让 Spotify 完成初始化
+                return True
+        return False
+
     def play_song(self, song_id: str) -> tuple:
         if not song_id:
+            return False, ""
+        if not self._ensure_running():
             return False, ""
         # 播放 → 隐藏 Spotify 窗口 → 激活回终端（Spotify 弹出时会短暂闪烁，已是最优）
         script = (
