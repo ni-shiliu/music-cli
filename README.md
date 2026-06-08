@@ -21,7 +21,7 @@ macOS 音乐控制 CLI，支持**酷狗**和 **Spotify** 桌面客户端。
 ## 安装
 
 ```bash
-git clone https://github.com/your-username/music-cli.git
+git clone https://github.com/ni-shiliu/music-cli.git
 cd music-cli
 
 # 设置快捷命令（可选）
