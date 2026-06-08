@@ -45,7 +45,7 @@ $MUSIC [--provider kugou|spotify] <command>
 | `search <query>` | Search, returns list |
 | `recommend <mood>` | Pick by mood and play |
 
-`--provider` defaults to `kugou`. Set `MUSIC_PROVIDER=spotify` to default to Spotify.
+`--provider` defaults to `spotify`. If Spotify is not running, it will be launched automatically. Set `MUSIC_PROVIDER=kugou` to use KuGou instead.
 
 ## Mood Keywords
 
