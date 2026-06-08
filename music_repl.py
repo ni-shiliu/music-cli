@@ -398,7 +398,7 @@ def main():
     parser = argparse.ArgumentParser(prog="music-repl")
     parser.add_argument(
         "--provider", choices=["kugou", "spotify"],
-        default=os.environ.get("MUSIC_PROVIDER", "kugou"),
+        default=os.environ.get("MUSIC_PROVIDER", "spotify"),
     )
     _provider = get_provider(parser.parse_args().provider)
 
