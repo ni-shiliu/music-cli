@@ -41,10 +41,8 @@ class _SearchState:
         self.page_results = []
 
     def load_next(self, provider) -> list:
-        from providers import KuGouProvider
-        sp = KuGouProvider() if provider.name == "spotify" else provider
         self.page += 1
-        results = sp.search(self.keyword, page_size=10, page=self.page)
+        results = provider.search(self.keyword, page_size=10, page=self.page)
         self.page_results = results
         self.all_results.extend(results)
         return results
@@ -273,11 +271,10 @@ def _load_more():
 
 
 def _play_song(song: dict):
-    if _provider.name == "spotify":
-        q      = f"{song.get('title', '')} {song.get('artist', '')}".strip()
+    song_id = song.get("id", "")
+    if not song_id and _provider.name == "spotify":
+        q = f"{song.get('title', '')} {song.get('artist', '')}".strip()
         song_id = f"spotify:search:{urllib.parse.quote(q)}"
-    else:
-        song_id = song.get("id", "")
     if not song_id:
         print(_c("  无法播放（缺少 id）", RED))
         return
