@@ -5,9 +5,11 @@ import sys
 import json
 import base64
 import hashlib
+import platform
 import secrets
 import subprocess
 import time
+import uuid
 import urllib.request
 import urllib.parse
 from abc import ABC, abstractmethod
@@ -223,6 +225,179 @@ _SP_VERBS = {
     MR_CMD_PAUSE:  "pause",
 }
 
+# ── 匿名 Token（Web Player API，无需 OAuth）─────────────────────────────────────
+_ANON_TOKEN_CACHE = {}
+
+# 用于请求匿名 access token 时的 totp 参数（spotify web player 固定值）
+_TOTP_PARAMS = "totp=691685&totpServer=691685&totpVer=61"
+
+_WEB_PLAYER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+)
+
+# 已知的匿名 access token（从 web player 获取，用于 API 调用）
+_KNOWN_ANON_TOKEN = "BQDMXa0b0AvJ08n4mNu2ggE0UsdOwtc6ui3N9rKBgUXfwgTGNbGvwVor8Skkx0YnGmaSf57ugPf7aYir1P9q5GStK2Ra87j32KeWGj3zNmTGkVjyu3ogPArR3Fg93bqqwMJSLG0y56E"
+
+# 已知的 client token（从 clienttoken.spotify.com 获取）
+_KNOWN_CLIENT_TOKEN = (
+    "AACeVIWrT0nftw1FLjJZHAjgp66fqKDo/vcBAQGodeXb+9eMFJsAdJuBag/wkjGUfzu9YhMUfr6C"
+    "9ixvniGvQZfgo5AJ8YL9WEafK4/8GT5Y9lQVANs2q7v5MIMjWcTRrCT35BzbnpOncCEBG/dp90W4"
+    "BoiRObm03lww9Y9dbbdPIfSKX5viONklg0vCz1bKvrvZKrRIF2aHCFa8hXI9zIYx/h/GZMiJDYJTEh"
+    "paLdo++dD6cu1s9rA7LEbZmjpShPFfO2ejvJsOy/TE9IDg016lMoOOL+ox19Lm46tCUMi5SvYrkuSi"
+    "unWENQuteUEk1PDHO6AgFMXZEA0ahTnkgrfYYU/ybbSxmmvkVRUMHg=="
+)
+
+
+def _gen_device_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _fetch_client_token(client_id: str = "d8a5ed958d274c2e8ee717e6a4b0971d") -> dict:
+    """从 clienttoken.spotify.com 获取 client token。"""
+    device_id = _gen_device_id()
+    body = json.dumps({
+        "client_data": {
+            "client_version": "1.2.92.139.gabc3400e",
+            "client_id": client_id,
+            "js_sdk_data": {
+                "device_brand": "Apple",
+                "device_model": "unknown",
+                "os": "macos",
+                "os_version": platform.mac_ver()[0] or "15.0",
+                "device_id": device_id,
+                "device_type": "computer",
+            },
+        },
+    }).encode()
+    req = urllib.request.Request(
+        "https://clienttoken.spotify.com/v1/clienttoken",
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": "https://open.spotify.com",
+            "User-Agent": _WEB_PLAYER_UA,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read().decode())
+
+
+def _fetch_anon_token() -> dict:
+    """从 open.spotify.com 获取匿名 access token。"""
+    sp_t = str(uuid.uuid4())
+    url = (
+        f"https://open.spotify.com/api/token"
+        f"?reason=init&productType=web-player&{_TOTP_PARAMS}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Cookie": f"sp_t={sp_t}; sp_new=1",
+            "User-Agent": _WEB_PLAYER_UA,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read().decode())
+
+
+def _ensure_anon_tokens() -> tuple:
+    """返回 (access_token, client_token)，自动缓存和刷新。"""
+    now = time.time()
+    cached = _ANON_TOKEN_CACHE
+    if cached and cached.get("expires_at", 0) > now + 300:
+        return cached["access_token"], cached["client_token"]
+
+    access_token = ""
+    client_token = ""
+    client_id = "d8a5ed958d274c2e8ee717e6a4b0971d"
+
+    # 1. 尝试获取匿名 access token
+    try:
+        data = _fetch_anon_token()
+        access_token = data.get("accessToken", "")
+        expires_ms = data.get("accessTokenExpirationTimestampMs", 0)
+        expires_at = expires_ms / 1000.0 if expires_ms else now + 3500
+        client_id = data.get("clientId", client_id)
+    except Exception:
+        # 回退到已知 token
+        access_token = _KNOWN_ANON_TOKEN
+        expires_at = now + 3500
+
+    # 2. 获取 client token
+    try:
+        ct_data = _fetch_client_token(client_id)
+        client_token = (
+            ct_data.get("granted_token", {}).get("token", "")
+            or ct_data.get("response", {}).get("granted_token", {}).get("token", "")
+        )
+    except Exception:
+        pass
+
+    if not client_token:
+        client_token = _KNOWN_CLIENT_TOKEN
+
+    # 缓存
+    _ANON_TOKEN_CACHE.update(
+        access_token=access_token,
+        client_token=client_token,
+        expires_at=expires_at - 300,  # 提前 5 分钟刷新
+    )
+    return access_token, client_token
+
+
+def _parse_search_results(data: dict) -> list:
+    """将 searchDesktop GraphQL 响应解析为 [{title, artist, album, id, duration}]。"""
+    sv = data.get("data", {}).get("searchV2", {})
+    results = []
+
+    # 从 topResults 提取 tracks
+    top_items = sv.get("topResults", {}).get("itemsV2", [])
+    for wrapper in top_items:
+        item = (
+            wrapper.get("item", {}).get("data", {})
+            or wrapper.get("data", {})
+        )
+        if item.get("__typename") != "Track":
+            continue
+        track = _extract_track(item)
+        if track:
+            results.append(track)
+
+    # 从 tracksV2 提取 tracks（如果上面不够）
+    track_items = sv.get("tracksV2", {}).get("items", [])
+    for wrapper in track_items:
+        item = (
+            wrapper.get("item", {}).get("data", {})
+            or wrapper.get("data", {})
+        )
+        track = _extract_track(item)
+        if track:
+            results.append(track)
+
+    return results
+
+
+def _extract_track(item: dict) -> Optional[dict]:
+    """从单个 GraphQL track item 提取标准格式。"""
+    uri = item.get("uri", "")
+    if not uri or not item.get("name"):
+        return None
+    artists = [a.get("profile", {}).get("name", "") for a in item.get("artists", {}).get("items", [])]
+    artist = artists[0] if artists else ""
+    album = item.get("albumOfTrack", {}) or {}
+    album_name = album.get("name", "")
+    duration_ms = int(item.get("trackDuration", {}).get("totalMilliseconds", 0))
+    return {
+        "title":    item.get("name", ""),
+        "artist":   artist,
+        "album":    album_name,
+        "id":       uri,
+        "duration": duration_ms // 1000,
+    }
+
 
 class SpotifyProvider(MusicProvider):
     name = "spotify"
@@ -306,12 +481,79 @@ class SpotifyProvider(MusicProvider):
     def has_credentials(self) -> bool:
         return bool(_client_id() and _token_data().get("access_token"))
 
-    # ── 搜索（Spotify Web API，需授权）──────────────────────────────────────
+    # ── 搜索（Spotify Web Player API，无需 OAuth）───────────────────────────
     def search(self, keyword: str, page_size: int = 8, page: int = 1) -> list:
+        """通过 Spotify Web Player 匿名 API 搜索歌曲。"""
+        results = self._search_partner(keyword, page_size, page)
+        if results:
+            return results
+        # 兜底：尝试官方 Web API（需要 OAuth token）
+        return self._search_oauth(keyword, page_size)
+
+    def _search_partner(self, keyword: str, page_size: int, page: int = 1) -> list:
+        """使用 Web Player 的 pathfinder API 搜索（无需登录）。"""
+        try:
+            access_token, client_token = _ensure_anon_tokens()
+        except Exception:
+            return []
+
+        offset = (page - 1) * page_size
+        body = json.dumps({
+            "variables": {
+                "searchTerm": keyword,
+                "offset": offset,
+                "limit": page_size,
+                "numberOfTopResults": 5,
+                "includeAudiobooks": True,
+                "includePreReleases": False,
+                "includeAlbumPreReleases": False,
+                "includeAuthors": False,
+                "includeEpisodeContentRatingsV2": False,
+            },
+            "operationName": "searchTracks",
+            "extensions": {
+                "persistedQuery": {
+                    "version": 1,
+                    "sha256Hash": (
+                        "59ee4a659c32e9ad894a71308207594a65ba67bb"
+                        "6b632b183abe97303a51fa55"
+                    ),
+                },
+            },
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api-partner.spotify.com/pathfinder/v2/query",
+            data=body,
+            headers={
+                "Accept": "application/json",
+                "Accept-Language": "zh-CN",
+                "App-Platform": "WebPlayer",
+                "Authorization": f"Bearer {access_token}",
+                "Client-Token": client_token,
+                "Content-Type": "application/json;charset=UTF-8",
+                "Origin": "https://open.spotify.com",
+                "Referer": "https://open.spotify.com/",
+                "Spotify-App-Version": "1.2.92.139.gabc3400e",
+                "User-Agent": _WEB_PLAYER_UA,
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode())
+            return _parse_search_results(data)
+        except Exception:
+            return []
+
+    def _search_oauth(self, keyword: str, page_size: int) -> list:
+        """通过官方 Web API 搜索（需要 OAuth 授权）。"""
         token = self._get_token()
         if not token:
             return []
-        params = urllib.parse.urlencode({"q": keyword, "type": "track", "limit": page_size})
+        params = urllib.parse.urlencode({
+            "q": keyword, "type": "track", "limit": page_size,
+        })
         req = urllib.request.Request(
             f"https://api.spotify.com/v1/search?{params}",
             headers={"Authorization": f"Bearer {token}"},
