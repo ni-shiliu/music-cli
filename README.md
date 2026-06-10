@@ -1,7 +1,8 @@
 # music-cli
 
 macOS 音乐控制 CLI，支持**酷狗**和 **Spotify** 桌面客户端。
-> 暂时支持Spotify（无需Premium）
+
+> 暂时支持Spotify
 
 ## 功能
 
@@ -36,8 +37,8 @@ source ~/.zshrc
 ### 交互模式（推荐）
 
 ```bash
-python3 music_repl.py                    # 酷狗
-python3 music_repl.py --provider spotify # Spotify
+python3 music_repl.py                    # Spotify
+python3 music_repl.py --provider kugou # kugou
 ```
 
 进入后可用以下命令：
@@ -79,44 +80,10 @@ python3 music_cli.py --provider spotify play-by 晴天 周杰伦
 export MUSIC_PROVIDER=spotify
 ```
 
-## Spotify 配置
+## Spotify 说明
 
-### 1. 注册 Developer App
-
-1. 登录 [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. 创建 App（名称随意，Redirect URI 填 `http://127.0.0.1:8888/callback`）
-3. 复制 **Client ID**
-
-### 2. 写入配置文件
-
-```bash
-mkdir -p ~/.config/music-cli
-cat > ~/.config/music-cli/config.json << 'EOF'
-{
-  "spotify": {
-    "client_id": "YOUR_CLIENT_ID"
-  }
-}
-EOF
-```
-
-或用环境变量：
-
-```bash
-export SPOTIFY_CLIENT_ID=YOUR_CLIENT_ID
-```
-
-### 3. 授权登录（首次）
-
-```bash
-python3 music_cli.py --provider spotify auth
-```
-
-浏览器打开 Spotify 授权页，登录并同意后自动完成。Token 存到 `~/.config/music-cli/config.json`，过期后自动刷新，无需重复操作。
-
-### 说明
-
-- **搜索**：走酷狗 API（免费、无需授权），结果用 `spotify:search:` URI 在 Spotify 客户端播放
+- 无需注册账号、无需配置，开箱即用
+- **搜索**：走 Spotify Web Player 匿名 API，零配置
 - **播放控制 / 状态检测**：本地 AppleScript，无需 Premium
 - Spotify 免费账号可用，播放时会有广告插播（平台限制）
 - 播放切歌时 Spotify 窗口会短暂闪烁，这是 macOS 的限制
