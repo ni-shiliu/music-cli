@@ -157,13 +157,6 @@ def cmd_play_by(args):
     return 0 if ok else 1
 
 
-def cmd_auth(args):
-    if args.provider_obj.name != "spotify":
-        err("auth 命令仅支持 --provider spotify", "unsupported")
-        return 1
-    return 0 if args.provider_obj.auth_login() else 1
-
-
 # ── 入口 ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
@@ -173,11 +166,10 @@ def main():
     parser.add_argument(
         "--provider", choices=["kugou", "spotify"],
         default=os.environ.get("MUSIC_PROVIDER", "spotify"),
-        help="音乐源（默认 kugou；可用 MUSIC_PROVIDER 环境变量覆盖）",
+        help="音乐源（默认 spotify；可用 MUSIC_PROVIDER 环境变量覆盖）",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth",   help="Spotify 授权登录（仅 --provider spotify）")
     sub.add_parser("status", help="当前播放信息")
     sub.add_parser("next",   help="下一首")
     sub.add_parser("prev",   help="上一首")
@@ -200,7 +192,6 @@ def main():
     args.provider_obj = get_provider(args.provider)
 
     fn = {
-        "auth":      cmd_auth,
         "status":    cmd_status,
         "next":      cmd_next,
         "prev":      cmd_prev,
